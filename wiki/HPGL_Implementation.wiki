@@ -18,3 +18,6 @@ Currently only the following commands are supported:
   * DT: label terminator char (default ETX, \003)
   * DI: label direction (run, rise)
   * LB: text label 
+
+= External References =
+[Isoplotec HP/GL Reference Outline http://www.isoplotec.co.jp/HPGL/eHPGL.htm]
