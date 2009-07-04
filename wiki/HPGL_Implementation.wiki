@@ -20,4 +20,4 @@ Currently only the following commands are supported:
   * LB: text label 
 
 = External References =
-[Isoplotec HP/GL Reference Outline http://www.isoplotec.co.jp/HPGL/eHPGL.htm]
+[http://www.isoplotec.co.jp/HPGL/eHPGL.htm Isoplotec HP/GL Reference Outline]
