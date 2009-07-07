@@ -130,11 +130,11 @@ lolbel:
 						numpad_idx = 0;
 						break;
 			case 'N':	// IN: init plotter
-						pstate = STATE_SKIP_END;
+						pstate = STATE_EXP1;
 						cmd = CMD_INIT;
 						break;
 			case 'H':	// IH: seek home (not HPGL)
-						pstate = STATE_SKIP_END;
+						pstate = STATE_EXP1;
 						cmd = CMD_SEEK0;
 						break;
 			default:
