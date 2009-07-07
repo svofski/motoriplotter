@@ -22,7 +22,10 @@
 //#define MOTOR_PACE_FASTX 0x40 	//!< X axis has smaller steps, goes faster
 //#define MOTOR_PACE_FASTY 0x60 	//!< Y axis has larger steps, goes slower
 
-#define ACCEL_STEPS_PER_INCREMENT 3	//!< ramp up/down each this many steps 
+#define ACCEL_STEPS_RAMP 3	//!< ramp up/down each this many steps 
+
+#define ACCEL_XTHRESH1	800
+#define ACCEL_XTHRESH2	1600
 
 #define STEPSCALE_X 1.8989		//!< scale coefficient X
 #define STEPSCALE_Y 0.7588		//!< scale coefficient Y

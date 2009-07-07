@@ -104,6 +104,11 @@ double  alpha, last_alpha, alpha_delta;		///< may be used if SLOW_QUALITY
 #define SEEK0_DONE 	0x80
 volatile uint8_t seeking0;						///< state of seeking home position
 
+void grinding_halt() {	
+	printf_P(PSTR("\n\007HALT\n"));
+	for(;;);
+}
+
 /// Only initialize port directions and pullups
 void init_io() {
 	DDRC=0xff;	// outputs
@@ -182,13 +187,30 @@ void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep) {
 		break;
 	case ACCEL_ACCEL:
 		motor_pace_goal = steep ? MOTOR_PACE_FASTY : MOTOR_PACE_FASTX;
-		if (pen_status == 0) motor_pace_goal /= steep ? 2 : 4;
-		motor_accel_ctr = ACCEL_STEPS_PER_INCREMENT;
+		//printf_P(PSTR("accel_strokesteps=%d"), accel_strokesteps);
+		
+		// Acceleration with pen up:
+		// it can be done much faster than with the pen down because overshooting
+		// is not a big problem. But to avoid bad kicks, it's better to keep
+		// the speed slower at short distances. X-mass is big.
+		if (pen_status == 0) {
+			if (steep) {
+				motor_pace_goal /= 2;
+			} else {
+				if (accel_strokesteps < ACCEL_XTHRESH1) {
+				} else if (accel_strokesteps < ACCEL_XTHRESH2) { 
+					motor_pace_goal /= 2; 
+				} else {
+					motor_pace_goal /= 4;
+				}
+			}
+		}
+		motor_accel_ctr = ACCEL_STEPS_RAMP;
 		if (motor_pace != motor_pace_goal) motor_accel = -1;
 		break;
 	case ACCEL_DECEL:
 		motor_pace_goal = MOTOR_PACE_SLOW;
-		motor_accel_ctr = ACCEL_STEPS_PER_INCREMENT;
+		motor_accel_ctr = ACCEL_STEPS_RAMP;
 		if (motor_pace != motor_pace_goal) motor_accel = 1;
 		break;
 	}
@@ -253,7 +275,7 @@ void do_stuff() {
 	uint8_t labelchar;
 	uint8_t penny;
 	static uint8_t arc_active = 0, initializing = 0, char_active = 0;
-	int16_t runway_length;
+	STEPPER_COORD speedup_length, slowdown_length;
 
 	dstx = dsty = -1;
 	if (seeking0 != SEEK0_NULL) {
@@ -300,7 +322,7 @@ void do_stuff() {
 				break;
 			case CMD_LB:
 				if (labelchar != 0) {
-					printf_P(PSTR("[%c]"), labelchar);
+					//printf_P(PSTR("[%c]"), labelchar);
 					char_active = text_char(labelchar, &dstx, &dsty, &penny);
 				}
 				//text_active = 1;
@@ -335,20 +357,25 @@ void do_stuff() {
 			_delay_ms(50);
 		}
 #endif
-		printf_P(PSTR("PRE-PACE: %d; "), motor_pace);
+		//printf_P(PSTR("PRE-PACE: %d; "), motor_pace);
 		accel_strokesteps = movestep(dstx, dsty);
 		set_acceleration(ACCEL_FIXSLOW, 0);
 		set_acceleration(ACCEL_ACCEL, move_is_steep());
 
-		runway_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_PER_INCREMENT/2;
-		if (2*runway_length < accel_strokesteps) {
-			accel_decelthresh = accel_strokesteps - runway_length;
+		speedup_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_RAMP;
+		
+		slowdown_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_RAMP;
+		
+		if ((speedup_length + slowdown_length) < accel_strokesteps) {
+			accel_decelthresh = accel_strokesteps - slowdown_length;
 		} else {
 			accel_decelthresh = accel_strokesteps/2;
 		}
 		
-		//printf_P(PSTR("MOVE TO: (%d %d) l=%d dthresh=%d goal=%d pace=%d\n"), dstx, dsty, accel_strokesteps, accel_decelthresh, motor_pace_goal, motor_pace);
-		printf_P(PSTR("User: (%5.2f,%5.2f)\n"), user_loc.x, user_loc.y);
+		//printf_P(PSTR("\nMOVE TO: (%d %d) strokesteps=%d dthresh=%d pace_goal=%d start_pace=%d speedup=%d slowdown=%d\n"), 
+		//	dstx, dsty, accel_strokesteps, accel_decelthresh, motor_pace_goal, motor_pace, 
+		//	speedup_length, slowdown_length);
+		//printf_P(PSTR("User: (%5.2f,%5.2f)\n"), user_loc.x, user_loc.y);
 	}
 }
 
@@ -399,9 +426,16 @@ void SIG_OUTPUT_COMPARE0A( void ) {
 			seeking0 = SEEK0_DONE;
 		}
 		step(borderflags & _BV(XSUP) ? 0 : -1, borderflags & _BV(YSUP) ? 0 : -1);
-		
 		return;
 	}
+
+	//if (!motors_ready()) {
+	//	if (motor_pace < (MOTOR_PACE_FASTY/4) || motor_pace > 255) {
+	//		printf_P(PSTR("\nERROR\nMotor pace=%d\n"), motor_pace);
+	//		grinding_halt();
+	//	}
+	//}
+	
 	
 	stepnumber = movestep(-1,-1);
 	
@@ -413,7 +447,7 @@ void SIG_OUTPUT_COMPARE0A( void ) {
 
 	if (stepnumber != -1 && motor_accel) {
 		if (--motor_accel_ctr == 0) {
-			motor_accel_ctr = ACCEL_STEPS_PER_INCREMENT;
+			motor_accel_ctr = ACCEL_STEPS_RAMP; 
 			motor_pace += motor_accel;
 			if (motor_pace == motor_pace_goal) {
 				motor_accel = 0;
