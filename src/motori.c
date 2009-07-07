@@ -99,6 +99,8 @@ volatile uint8_t pen_pulse_counter = 0;		///< used for servo control
 
 double  alpha, last_alpha, alpha_delta;		///< may be used if SLOW_QUALITY
 
+volatile int16_t msleep_counter = -1;
+
 #define SEEK0_NULL	0
 #define SEEK0_SEEK	1
 #define SEEK0_DONE 	0x80
@@ -131,6 +133,26 @@ void timer0_init() {
 	OCR0A = 0xff;
 }
 
+void msleep_enable(uint8_t enable) {
+	if (enable) {
+		if (msleep_counter == -1) {
+			msleep_counter = SLEEP_COUNTER;
+		}
+	} else {
+		msleep_counter = -1;
+	}
+}
+
+void timer1_init() {
+	msleep_enable(0);
+	
+	TCCR1A = 0;		// normal mode, disconnect all
+	TCCR1B = 5;		// clk/1024
+	TCNT1 = SLEEP_PERIOD;
+	TIMSK1 = _BV(TOIE1);
+}
+
+
 /// Initialize Timer 2.
 /// Timer2 is used to control the pen-lifting servo.
 /// @see SIG_OVERFLOW2
@@ -159,6 +181,25 @@ void motori_enable(uint8_t enable) {
 		PORTB |= _BV(MENABLE);
 	}
 }
+
+
+/// Put the motors to sleep. Waits 1ms after sleep has ended.
+/// @param zzz true if sleeping
+void motori_sleep(uint8_t zzz) {
+	if (zzz) {
+		if ((PORTB & _BV(MSLEEP)) != 0) {
+			printf_P(PSTR("\nSLEEP\n"));
+			PORTB &= ~_BV(MSLEEP);
+		}
+	} else {
+		if ((PORTB & _BV(MSLEEP)) == 0) {
+			printf_P(PSTR("\nWAKE\n"));
+			PORTB |= _BV(MSLEEP);
+			_delay_ms(1);
+		}
+	}
+}
+
 
 // issue the actual step commands to stepper controllers
 // direction +1/-1, 0 == stand still
@@ -246,6 +287,7 @@ void pen_control(uint8_t down) {
 
 void plotter_init() {
 	timer0_init();
+	timer1_init();
 	timer2_init();
 	set_acceleration(ACCEL_FIXSLOW, 0);
 	
@@ -260,6 +302,7 @@ void plotter_init() {
 	
 	seeking0 = SEEK0_NULL;
 }
+
 
 /// Main loop routine.
 ///
@@ -294,6 +337,9 @@ void do_stuff() {
 		pen_control(penny);
 	} else {
 		if (uart_available()) {
+			msleep_enable(0);
+			motori_sleep(0);
+			
 			uart_putchar(c = uart_getc());
 
 			switch(hpgl_char(c, &dstx, &dsty, &labelchar)) {
@@ -339,6 +385,8 @@ void do_stuff() {
 			default:
 				break;
 			}
+		} else {
+			msleep_enable(1);
 		}
 	}
 	
@@ -470,6 +518,18 @@ void SIG_OVERFLOW2( void ) {
 		}
 	}
 	pen_pulse_counter = (pen_pulse_counter + 1) & 0x7f;	
+}
+
+/// Timer 1 Overflow Interrupt puts the motors to sleep if the host forgets about us
+void SIG_OVERFLOW1( void ) __attribute__ ( ( signal ) );  
+void SIG_OVERFLOW1( void ) {
+	if (msleep_counter == -1) return;
+
+	if (msleep_counter == 0) {
+		motori_sleep(1);
+	} else {
+		--msleep_counter;
+	}
 }
 
 // $Id$

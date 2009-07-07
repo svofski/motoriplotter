@@ -30,4 +30,7 @@
 #define STEPSCALE_X 1.8989		//!< scale coefficient X
 #define STEPSCALE_Y 0.7588		//!< scale coefficient Y
 
+#define SLEEP_PERIOD	256		//!< clk/256/256
+#define SLEEP_COUNTER	5		//!< this many periods of inactivity and we really go zZz
+
 #endif
