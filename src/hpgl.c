@@ -48,6 +48,8 @@ lolbel:
 						break;
 			case 'D':	pstate = STATE_EXP_D;
 						break;
+			case 'V':	pstate = STATE_EXP_V;
+						break;
 			default:	pstate = STATE_SKIP_END;
 						break;
 			}
@@ -68,6 +70,11 @@ lolbel:
 						numpad_idx = 0;
 						pstate = STATE_EXP4;
 						nstate = STATE_ARC;
+						break;
+			case 'S':	// Acceleration Select
+						numpad_idx = 0;
+						pstate = STATE_EXP4;
+						nstate = STATE_AS;
 						break;
 			}
 			break;
@@ -164,6 +171,19 @@ lolbel:
 						pstate = STATE_EXP4;
 						nstate = STATE_DI;
 						numpad_idx = 0;						
+						break;
+			default:
+						pstate = STATE_SKIP_END;
+						break;
+			}
+			break;
+			
+		case STATE_EXP_V:
+			switch (c) {
+			case 'S':	// VS: Velocity Select
+						pstate = STATE_EXP4;
+						nstate = STATE_VS;
+						numpad_idx = 0;
 						break;
 			default:
 						pstate = STATE_SKIP_END;
@@ -297,6 +317,16 @@ lolbel:
 		case STATE_DI:
 			// numpad contains sin(theta), cos(theta)
 			cmd = CMD_DI;
+			pstate = STATE_EXP1;
+			break;
+			
+		case STATE_VS:
+			cmd = CMD_VS;
+			pstate = STATE_EXP1;
+			break;
+			
+		case STATE_AS:
+			cmd = CMD_AS;
 			pstate = STATE_EXP1;
 			break;
 	}

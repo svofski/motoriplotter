@@ -82,7 +82,7 @@ eps: $(PRG).eps
 png: $(PRG).png
 pdf: $(PRG).pdf
 
-doxygen:	doc/html/index.html
+doxygen:	doc/html
 	$(DOXYGEN) Doxyfile
 
 %.eps: %.fig

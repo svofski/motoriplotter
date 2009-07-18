@@ -24,16 +24,17 @@ To prevent shaking and mechanical oscillations motor speed is ramped up and down
 In my hardware the motors are very different (one from a Canon printer, other from Epson). The Y-axis motor has lower resolution, or more travel per step. This is why there are not only separate scale coefficients for X and Y axes, but X and Y maximal speeds are also different.<p>
 Since plotter is a very slow device, the communication with computer requires flow control. This implementation uses RTS/CTS flow control, although the plotter wouldn't bother if the host PC can't accept data.<h2><a class="anchor" name="The">
 Code</a></h2>
-<ul>
+Lalala boo!<ul>
 <li><a class="el" href="motori_8h.html">motori.h</a>, <a class="el" href="motori_8c.html">motori.c</a> this is the main module with I/O, main loop, interrupts etc</li><li><a class="el" href="line_8h.html">line.h</a> has the Bresenham's</li><li><a class="el" href="arc_8h.html">arc.h</a> converts an arc description into a series of chords</li><li><a class="el" href="hpgl_8h.html">hpgl.h</a> scans the input and parses commands</li><li><a class="el" href="usrat_8h.html">usrat.h</a> serial i/o</li><li><a class="el" href="shvars_8h.html">shvars.h</a> global variables shared among modules</li><li><a class="el" href="configs_8h.html">configs.h</a> global defines</li></ul>
-<h2><a class="anchor" name="License">
+<p>
+See the Files section for the complete reference.<h2><a class="anchor" name="License">
 License</a></h2>
 BSD License. Just use it. It will burn your motors though.<h2><a class="anchor" name="Permanent">
 Location</a></h2>
 This documentation, source code and other files can be found at <a href="http://sensi.org/~svo">http://sensi.org/~svo</a><p>
 Yours truly,<br>
  Viacheslav Slavinsky </div>
-<hr size="1"><address style="text-align: right;"><small>Generated on Sat Jul 4 05:27:39 2009 for motori by&nbsp;
+<hr size="1"><address style="text-align: right;"><small>Generated on Fri Jul 17 23:53:28 2009 for motori by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.5.9 </small></address>
 </body>

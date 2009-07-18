@@ -6,7 +6,7 @@
 ///
 /// @author Viacheslav Slavinsky
 ///
-///\mainpage Plotter Firmware
+/// \mainpage Plotter Firmware
 /// \section Description
 /// This is the firmware for Mot&ouml;ri the Plotter. It consists of basic ATmega644 I/O configuration code, 
 /// low-level motor and pen control, basic linear motion algorithms and a scanner/parser that can
@@ -21,7 +21,7 @@
 ///
 /// Since plotter is a very slow device, the communication with computer requires flow control.
 /// This implementation uses RTS/CTS flow control, although the plotter wouldn't bother if the host
-/// PC can't accept data. 
+/// PC can't accept data.
 ///
 /// \section The Code
 ///  - motori.h, motori.c	this is the main module with I/O, main loop, interrupts etc
@@ -31,6 +31,8 @@
 ///  - usrat.h				serial i/o
 ///  - shvars.h				global variables shared among modules
 ///  - configs.h			global defines
+///
+/// See the Files section for the complete reference.
 ///
 /// \section License
 /// BSD License. Just use it. It will burn your motors though.
@@ -89,6 +91,7 @@ volatile int8_t  motor_accel = 0;				///< signed, speed ramp direction -1 -> spe
 
 volatile int16_t accel_strokesteps; 			///< length of current line in motor steps
 volatile int16_t accel_decelthresh; 			///< at this step start slowing down
+volatile uint8_t accel_mode = 1;				///< 0 = constant speed, see AS command
 
 #define sgn(x) ((x)==0?0:((x)<1)?-1:1)
 
@@ -105,6 +108,10 @@ volatile int16_t msleep_counter = -1;
 #define SEEK0_SEEK	1
 #define SEEK0_DONE 	0x80
 volatile uint8_t seeking0;						///< state of seeking home position
+
+volatile uint16_t speed_skip = SPEED_SKIP;		///< only perform stepping once in this many times
+volatile uint16_t speed_skip_ctr = 1;
+
 
 void grinding_halt() {	
 	printf_P(PSTR("\n\007HALT\n"));
@@ -133,6 +140,7 @@ void timer0_init() {
 	OCR0A = 0xff;
 }
 
+/// Enable/disable entering sleep mode
 void msleep_enable(uint8_t enable) {
 	if (enable) {
 		if (msleep_counter == -1) {
@@ -143,6 +151,9 @@ void msleep_enable(uint8_t enable) {
 	}
 }
 
+
+/// Initialize sleep control timer
+/// @see SLEEP_PERIOD
 void timer1_init() {
 	msleep_enable(0);
 	
@@ -227,31 +238,36 @@ void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep) {
 		motor_pace = (MOTOR_PACE_SLOW-MOTOR_PACE_FASTX)/2;
 		break;
 	case ACCEL_ACCEL:
-		motor_pace_goal = steep ? MOTOR_PACE_FASTY : MOTOR_PACE_FASTX;
-		//printf_P(PSTR("accel_strokesteps=%d"), accel_strokesteps);
-		
-		// Acceleration with pen up:
-		// it can be done much faster than with the pen down because overshooting
-		// is not a big problem. But to avoid bad kicks, it's better to keep
-		// the speed slower at short distances. X-mass is big.
-		if (pen_status == 0) {
-			if (steep) {
-				motor_pace_goal /= 2;
-			} else {
-				if (accel_strokesteps < ACCEL_XTHRESH1) {
-				} else if (accel_strokesteps < ACCEL_XTHRESH2) { 
-					motor_pace_goal /= 2; 
+		if ((pen_status == 0) || accel_mode) {
+			motor_pace_goal = steep ? MOTOR_PACE_FASTY : MOTOR_PACE_FASTX;
+			if (speed_skip != 0) motor_pace_goal *= 2;	// not too fast for laser
+			//printf_P(PSTR("accel_strokesteps=%d"), accel_strokesteps);
+			
+			// Acceleration with pen up:
+			// it can be done much faster than with the pen down because overshooting
+			// is not a big problem. But to avoid bad kicks, it's better to keep
+			// the speed slower at short distances. X-mass is big.
+			if (pen_status == 0) {
+				if (steep) {
+					motor_pace_goal /= 2;
 				} else {
-					motor_pace_goal /= 4;
+					if (accel_strokesteps < ACCEL_XTHRESH1) {
+					} else if (accel_strokesteps < ACCEL_XTHRESH2) { 
+						motor_pace_goal /= 2; 
+					} else {
+						motor_pace_goal /= 4;
+					}
 				}
 			}
+			motor_accel_ctr = ACCEL_STEPS_RAMP;
 		}
-		motor_accel_ctr = ACCEL_STEPS_RAMP;
 		if (motor_pace != motor_pace_goal) motor_accel = -1;
 		break;
 	case ACCEL_DECEL:
-		motor_pace_goal = MOTOR_PACE_SLOW;
-		motor_accel_ctr = ACCEL_STEPS_RAMP;
+		if ((pen_status == 0) || accel_mode) {
+			motor_pace_goal = MOTOR_PACE_SLOW;
+			motor_accel_ctr = ACCEL_STEPS_RAMP;
+		}
 		if (motor_pace != motor_pace_goal) motor_accel = 1;
 		break;
 	}
@@ -301,6 +317,18 @@ void plotter_init() {
 	pen_control(0);
 	
 	seeking0 = SEEK0_NULL;
+}
+
+void set_speed(double value) {
+	if (value >= 0) {
+		speed_skip = (int)round(value);
+	} else {
+		speed_skip = SPEED_SKIP;
+	}
+}
+
+void set_acceleration_mode(double value) {
+	accel_mode = value != 0.0;
 }
 
 
@@ -381,6 +409,12 @@ void do_stuff() {
 				break;
 			case CMD_DI:
 				text_direction(numpad[0], numpad[1]);
+				break;
+			case CMD_VS:
+				set_speed(numpad[0]);
+				break;
+			case CMD_AS:
+				set_acceleration_mode(numpad[0]);
 				break;
 			default:
 				break;
@@ -476,14 +510,16 @@ void SIG_OUTPUT_COMPARE0A( void ) {
 		step(borderflags & _BV(XSUP) ? 0 : -1, borderflags & _BV(YSUP) ? 0 : -1);
 		return;
 	}
-
-	//if (!motors_ready()) {
-	//	if (motor_pace < (MOTOR_PACE_FASTY/4) || motor_pace > 255) {
-	//		printf_P(PSTR("\nERROR\nMotor pace=%d\n"), motor_pace);
-	//		grinding_halt();
-	//	}
-	//}
 	
+	if (speed_skip != 0) {
+		speed_skip_ctr--;
+		if ((speed_skip_ctr != 0) && (pen_status != 0)) {
+			return;
+		} else {
+			speed_skip_ctr = speed_skip;
+		}
+	}
+
 	
 	stepnumber = movestep(-1,-1);
 	

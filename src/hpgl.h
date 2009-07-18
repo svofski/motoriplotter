@@ -18,6 +18,8 @@ enum _hpgl_command {
 	CMD_SI,				///< Absolute character size
 	CMD_SR,				///< Relative character size
 	CMD_DI,				///< Label direction: numpad[0]=sin(theta), numpad[1]=cos(theta)
+	CMD_AS,				///< Acceleration Select: 0 = no acceleration (nonstandard)
+	CMD_VS,				///< Velocity Select: 0 = fastest (nonstandard)
 };
 
 /// Internal scanner state. 
@@ -30,6 +32,8 @@ enum _scanner_state {
 	STATE_EXP_A,
 	STATE_EXP_L,
 	STATE_EXP_D,
+	STATE_EXP_V,
+	
 	STATE_X,
 	STATE_Y,
 	STATE_SP,			///< Select pen
@@ -40,6 +44,9 @@ enum _scanner_state {
 	STATE_SR,			///< relative character size
 	STATE_DT,			///< label terminator char
 	STATE_DI,			///< label direction
+	
+	STATE_AS,			///< Acceleration Select (nonstandard: 0/1)
+	STATE_VS,			///< Velocity Select (nonstandard: value = skip steps, the more the slower)
 	
 	STATE_EXP4,			///< Expect 4 numbers (like for AA, IP, SC)
 	STATE_ARC,			///< Arc
