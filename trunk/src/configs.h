@@ -33,4 +33,6 @@
 #define SLEEP_PERIOD	256		//!< clk/256/256
 #define SLEEP_COUNTER	5		//!< this many periods of inactivity and we really go zZz
 
+#define SPEED_SKIP	25
+
 #endif
