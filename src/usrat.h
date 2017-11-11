@@ -5,7 +5,7 @@
 #define RX_BUFFER_SIZE	64					//!< USART RX buffer length
 
 void usart_init(uint16_t baudrate);
-int uart_putchar(char data);
+int uart_putchar(char data, FILE* stream);
 int uart_getchar();
 uint8_t uart_available(void);
 uint8_t uart_getc();

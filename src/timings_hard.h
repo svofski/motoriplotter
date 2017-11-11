@@ -1,0 +1,3 @@
+#define PEN_DOWN_DELAY  20
+#define PEN_LIFT_DELAY  50
+

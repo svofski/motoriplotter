@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 #include "usrat.h"
 
@@ -34,10 +35,10 @@ static void cts(uint8_t pause) {
 
 //! \brief putchar() for USART.
 //! \param data character to print.
-int uart_putchar(char data) {
+int uart_putchar(char data, FILE* stream) {
 	//while (!(UCSR0A & (1<<UDRE0))) {};
 	if (data == '\n') {
-		(void)uart_putchar('\r');
+		(void)uart_putchar('\r', stream);
 	}
 
 	while (!(UCSR0A & (1<<UDRE0))) {};
@@ -71,12 +72,10 @@ uint8_t uart_getc() {
 	return result;
 }
 
-void SIG_USART_RECV( void ) __attribute__ ( ( signal ) );  
-void SIG_USART_RECV( void ) {
+ISR(USART0_RX_vect) {
 	rx_buffer[rx_buffer_in] = (uint8_t)UDR0;
 	rx_buffer_in = (rx_buffer_in + 1) % RX_BUFFER_SIZE;
 	cts(1);
-	
 }
 
 // $Id: usrat.c,v 1.3 2006/05/30 09:03:52 svo Exp $

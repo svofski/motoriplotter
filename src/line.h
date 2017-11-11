@@ -23,4 +23,6 @@ int16_t movestep(int16_t x1, int16_t y1);
 /// @returns true if X and Y coordinates are swapped
 uint8_t move_is_steep(); // y axis is prevalent
 
+int16_t line_step_length(int16_t x0, int16_t y0, int16_t x1, int16_t y1);
+
 #endif

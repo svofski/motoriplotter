@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <avr/pgmspace.h>
+#include <pgmspace.h>
 
 #include "motori.h"
 #include "shvars.h"
@@ -23,13 +23,32 @@ uint8_t move_is_steep() {
 
 #define SWAP(a,b) {(a)^=(b);(b)^=(a);(a)^=(b);}
 
+int16_t line_step_length(int16_t x0, int16_t y0, int16_t x1, int16_t y1)
+{
+    int Dx = x1 - x0;
+    int Dy = y1 - y0;
+
+    if (abs(Dy) >= abs(Dx)) {
+        SWAP(x0, y0);
+        SWAP(x1, y1);
+        // recompute Dx, Dy after swap
+        Dx = x1 - x0;
+    }
+
+    if (Dx < 0) {
+        Dx = -Dx;
+    }
+
+    return Dx;
+}
+
 int16_t movestep(int16_t x1, int16_t y1) {
 	static int16_t twoDy, twoDyTwoDx, E, x, y, xend, stepcount;
 	static int8_t xstep, ystep;
-	static uint8_t skippy;
-
 	static int stepX, stepY;
-
+#ifdef YSKIPPY
+	static uint8_t skippy;
+#endif
 	
 	if (!moving && x1 != -1 && y1 != -1) {	// begin new line
 		int x0 = stepper_loc.x;
@@ -66,8 +85,9 @@ int16_t movestep(int16_t x1, int16_t y1) {
 		xend = x1;
 		
 		moving = Dx != 0;
+#ifdef YSKIPPY
 		skippy = 0;
-		
+#endif		
 		//printf_P(PSTR("zteep:%d nsteps:%d\n"), zteep, Dx);
 		
 		// don't make a step yet

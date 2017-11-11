@@ -80,7 +80,7 @@ copies.
  ** commands needed for switching from one to the other.
  **/
 
-#include <avr/pgmspace.h>
+#include <pgmspace.h>
 
 PGM_P charset0[256] = {
 	/* 0x00 ... 0x1f        */

@@ -48,6 +48,7 @@ void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep);
 ///
 /// @param down true if pen should be down, 0 if raised
 void pen_control(uint8_t down);
+void pen_immediate(uint8_t down);
 
 /// Initialize plotter state. Move to home position, then reset everything, including motors and timers.
 /// Reset user scale and translation, raise the pen.

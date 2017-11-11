@@ -45,11 +45,9 @@
 #include "configs.h"
 
 #include <inttypes.h>
-#include <avr/io.h>
-#include <avr/delay.h>
-#include <avr/interrupt.h>
-#include <avr/sleep.h>
-#include <avr/pgmspace.h>
+
+#include <motori_hw.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -62,82 +60,40 @@
 #include "scale.h"
 #include "hpgl.h"
 #include "motori.h"
-
-// I/O Pins
-#define MRESET 2		///< PORTB.2 is motor reset (global)
-#define MSLEEP 1		///< PORTB.1 is motor sleep (global)
-#define MENABLE 0		///< PORTB.0 is motor enable (global)
-
-#define DIR 0			///< PORTC.0, PORTC.4	X/Y dir
-#define STEP 1			///< PORTC.1, PORTC.5	X/Y step
-#define MS1 2			///< PORTC.2, PORTC.6	X/Y microstep select 1
-#define MS2 3			///< PORTC.3, PORTC.7	X/Y microstep select 2
-
-#define PENPCM 6		///< PORTD.6 pen servo control (1.5ms zero)
-
-///< PORTA
-#define XSUP	0
-#define XINF	1
-#define YSUP	2
-#define YINF	3
-#define ZSUP	4
-#define ZINF	5
+#include "path.h"
 
 
-volatile int16_t motor_pace = MOTOR_PACE_SLOW;	///< current motor pace, to be loaded to OCR0A
-volatile int16_t motor_pace_goal;				///< end speed ramp when motor_pace reaches this
+volatile int16_t motor_pace = MOTOR_PACE_SLOW;	        ///< current motor pace, to be loaded to OCR0A
+volatile int16_t motor_pace_goal;			///< end speed ramp when motor_pace reaches this
 volatile uint8_t motor_accel_ctr = 0;			///< step counter for ramping
-volatile int8_t  motor_accel = 0;				///< signed, speed ramp direction -1 -> speed up, 1 -> slow down
+volatile int8_t  motor_accel = 0;			///< signed, speed ramp direction -1 -> speed up, 1 -> slow down
 
 volatile int16_t accel_strokesteps; 			///< length of current line in motor steps
 volatile int16_t accel_decelthresh; 			///< at this step start slowing down
-volatile uint8_t accel_mode = 1;				///< 0 = constant speed, see AS command
+volatile uint8_t accel_mode = 1;			///< 0 = constant speed, see AS command
 
 #define sgn(x) ((x)==0?0:((x)<1)?-1:1)
 
 volatile uint8_t pen_status = 255; 			///< pen status: 0 = up
-volatile uint8_t pen_relax = 255;
 
-volatile uint8_t pen_pulse_counter = 0;		///< used for servo control
 
-double  alpha, last_alpha, alpha_delta;		///< may be used if SLOW_QUALITY
+double  alpha, last_alpha, alpha_delta;		        ///< may be used if SLOW_QUALITY
 
 volatile int16_t msleep_counter = -1;
 
 #define SEEK0_NULL	0
 #define SEEK0_SEEK	1
 #define SEEK0_DONE 	0x80
-volatile uint8_t seeking0;						///< state of seeking home position
+volatile uint8_t seeking0;				///< state of seeking home position
 
 volatile uint16_t speed_skip = SPEED_SKIP;		///< only perform stepping once in this many times
 volatile uint16_t speed_skip_ctr = 1;
 
+int32_t path_stepnumber;
 
 void grinding_halt() {	
 	printf_P(PSTR("\n\007HALT\n"));
 	for(;;);
-}
-
-/// Only initialize port directions and pullups
-void init_io() {
-	DDRC=0xff;	// outputs
-	DDRD=0xff;
-	DDRB=0xff;
-	DDRA=0xff & (~_BV(XSUP) | _BV(YSUP));	// XSUP, YSUP are inputs
-	PORTA = _BV(XSUP)|_BV(YSUP);			// enable pull-up on XSUP,YSUP
-	PORTB = 0x00;
-	PORTC = 0x00;
-	PORTD = 0x00;
-}
-
-/// Initialize Timer 0. 
-/// Timer0 is used for stepper control and speed ramping.
-/// @see SIG_OUTPUT_COMPARE0A
-void timer0_init() {
-	TCCR0A = 2; // CTC
-	TCCR0B = 4; // clk/256 prescaler
-	TIMSK0 = _BV(OCIE0A);
-	OCR0A = 0xff;
 }
 
 /// Enable/disable entering sleep mode
@@ -151,76 +107,15 @@ void msleep_enable(uint8_t enable) {
 	}
 }
 
+void msleep_callback()
+{
+	if (msleep_counter == -1) return;
 
-/// Initialize sleep control timer
-/// @see SLEEP_PERIOD
-void timer1_init() {
-	msleep_enable(0);
-	
-	TCCR1A = 0;		// normal mode, disconnect all
-	TCCR1B = 5;		// clk/1024
-	TCNT1 = SLEEP_PERIOD;
-	TIMSK1 = _BV(TOIE1);
-}
-
-
-/// Initialize Timer 2.
-/// Timer2 is used to control the pen-lifting servo.
-/// @see SIG_OVERFLOW2
-void timer2_init() {
-	TCCR2A = 0x00; // clear OC2B on compare match, normal mode
-	TCCR2B = 0x02; // clk/8 prescaler
-	TIMSK2 = _BV(TOIE2);
-}
-
-/// Initialize motor controllers: wake up, enable, reset and wait 100ms.
-void motori_init() {
-	PORTB |= _BV(MSLEEP);
-	PORTB &= ~(_BV(MENABLE) | _BV(MRESET));
-	_delay_ms(20);
-	PORTB |= _BV(MRESET);
-	_delay_ms(100);
-}
-
-/// Enable motors
-/// @param enable true if motors should be enabled
-void motori_enable(uint8_t enable) {
-	if (enable) {
-		PORTB &= ~(_BV(MENABLE) | _BV(MRESET));
-		PORTB |= _BV(MRESET);
+	if (msleep_counter == 0) {
+		motori_sleep(1);
 	} else {
-		PORTB |= _BV(MENABLE);
+		--msleep_counter;
 	}
-}
-
-
-/// Put the motors to sleep. Waits 1ms after sleep has ended.
-/// @param zzz true if sleeping
-void motori_sleep(uint8_t zzz) {
-	if (zzz) {
-		if ((PORTB & _BV(MSLEEP)) != 0) {
-			printf_P(PSTR("\nSLEEP\n"));
-			PORTB &= ~_BV(MSLEEP);
-		}
-	} else {
-		if ((PORTB & _BV(MSLEEP)) == 0) {
-			printf_P(PSTR("\nWAKE\n"));
-			PORTB |= _BV(MSLEEP);
-			_delay_ms(1);
-		}
-	}
-}
-
-
-// issue the actual step commands to stepper controllers
-// direction +1/-1, 0 == stand still
-void step(int8_t xdir, int8_t ydir) {
-	// permanently keeps MS1+MS2 for both motori
-	PORTC  = 0xcc; 
-	PORTC |= (ydir < 0 ? 0 : _BV(DIR+4)) | (xdir < 0 ? 0 : _BV(DIR));
-	
-	// issue step signals
-	PORTC |= (ydir ? _BV(STEP+4) : 0) | (xdir ? _BV(STEP) : 0);	
 }
 
 void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep) {
@@ -240,6 +135,14 @@ void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep) {
 	case ACCEL_ACCEL:
 		if ((pen_status == 0) || accel_mode) {
 			motor_pace_goal = steep ? MOTOR_PACE_FASTY : MOTOR_PACE_FASTX;
+                        if (pen_status == 0) {
+                            motor_pace_goal = MOTOR_PACE_PENUP;
+                        }
+#ifdef SIM
+                        fprintf(stderr, "set ACCEL_ACCEL goal=%d, speed_skip=%d ", motor_pace_goal,
+                                speed_skip);
+#endif
+#if 0
 			if (speed_skip != 0) motor_pace_goal *= 2;	// not too fast for laser
 			//printf_P(PSTR("accel_strokesteps=%d"), accel_strokesteps);
 			
@@ -259,11 +162,18 @@ void set_acceleration(ACCEL_MODE accel_mode, uint8_t steep) {
 					}
 				}
 			}
+#endif
 			motor_accel_ctr = ACCEL_STEPS_RAMP;
 		}
 		if (motor_pace != motor_pace_goal) motor_accel = -1;
+#ifdef SIM
+                fprintf(stderr, "final=%d\n", motor_pace_goal);
+#endif
 		break;
 	case ACCEL_DECEL:
+#ifdef SIM
+                fprintf(stderr, "set ACCEL_DECEL\n");
+#endif
 		if ((pen_status == 0) || accel_mode) {
 			motor_pace_goal = MOTOR_PACE_SLOW;
 			motor_accel_ctr = ACCEL_STEPS_RAMP;
@@ -280,25 +190,6 @@ double calc_angle(int16_t x2, int16_t y2) {
 	//printf("A=%4.2f, |dA|=%4.2f\n", alpha, dA);
 	
 	return dA;
-}
-
-
-void pen_control(uint8_t down) {
-	if (pen_status != down) {
-		while(!motors_ready());
-		if (down) {
-			_delay_ms(25);
-			pen_relax = 255;
-			pen_status = 1;
-		} else {
-			pen_relax = 255;
-			pen_status = 0;
-		}
-	
-		PORTD = (PORTD & ~_BV(7)) | (pen_status  ? 0: _BV(7));
-		
-		_delay_ms(100);
-	}
 }
 
 void plotter_init() {
@@ -331,6 +222,20 @@ void set_acceleration_mode(double value) {
 	accel_mode = value != 0.0;
 }
 
+void update_decelthresh() {
+    STEPPER_COORD speedup_length, slowdown_length;
+
+    uint32_t path_steplength = path_step_length_from_start();
+    speedup_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_RAMP;
+    slowdown_length = (MOTOR_PACE_SLOW-motor_pace_goal)*ACCEL_STEPS_RAMP;
+
+    if ((speedup_length + slowdown_length) < path_steplength) {
+        accel_decelthresh = path_steplength - slowdown_length;
+    } else {
+        accel_decelthresh = path_steplength / 2;
+    }
+}
+
 
 /// Main loop routine.
 ///
@@ -341,134 +246,253 @@ void set_acceleration_mode(double value) {
 ///
 ///		- Initialization: waits for the head to get home before doing a complete reset
 void do_stuff() {
-	STEPPER_COORD dstx, dsty;
-	char c;
-	uint8_t labelchar;
-	uint8_t penny;
-	static uint8_t arc_active = 0, initializing = 0, char_active = 0;
-	STEPPER_COORD speedup_length, slowdown_length;
+    STEPPER_COORD dstx, dsty;
+    char c;
+    uint8_t labelchar;
+    uint8_t penny;
+    uint8_t finish_path = 0;
+    uint8_t newpath = 0;
+    static uint8_t arc_active = 0, initializing = 0, char_active = 0;
 
-	dstx = dsty = -1;
-	if (seeking0 != SEEK0_NULL) {
-		while (seeking0 != SEEK0_DONE);
-		seeking0 = SEEK0_NULL;
-		plotter_init();
-		printf_P(PSTR("\nHOME\n"));
-	} else if (initializing) {
-		while(!motors_ready());
-		initializing = 0;
-		plotter_init();
-	} else if (arc_active) {
-		arc_active = arc_next(&dstx,&dsty);
-	} else if (char_active) {
-		char_active = text_char(0, &dstx, &dsty, &penny);
-		pen_control(penny);
-	} else {
-		if (uart_available()) {
-			msleep_enable(0);
-			motori_sleep(0);
-			
-			uart_putchar(c = uart_getc());
+    dstx = dsty = -1;
+    if (seeking0 != SEEK0_NULL) {
+        while (seeking0 != SEEK0_DONE) do_idle();
+        seeking0 = SEEK0_NULL;
+        plotter_init();
+        printf_P(PSTR("\nHOME\n"));
+    } else if (initializing) {
+        while(!motors_ready()) do_idle();
+        initializing = 0;
+        plotter_init();
+    } else if (arc_active) {
+        arc_active = arc_next(&dstx,&dsty);
+    } else if (char_active) {
+        char_active = text_char(0, &dstx, &dsty, &penny);
+        pen_control(penny);
+    } else {
+        if (path_can_add() && uart_available()) {
+            msleep_enable(0);
+            motori_sleep(0);
 
-			switch(hpgl_char(c, &dstx, &dsty, &labelchar)) {
-			case CMD_PU:
-				pen_control(0);
-				break;
-			case CMD_PD:
-				pen_control(1);
-				break;
-			case CMD_PA:
-				break;
-			case CMD_ARCABS:
-				arc_active = arc_init();
-				break;
-			case CMD_INIT:
-				// 1. home
-				// 2. init scale etc
-				dstx = dsty = 0;
-				initializing = 1;
-				break;
-			case CMD_SEEK0:
-				seeking0 = SEEK0_SEEK;
-				break;
-			case CMD_LB0:
-				text_beginlabel();
-				break;
-			case CMD_LB:
-				if (labelchar != 0) {
-					//printf_P(PSTR("[%c]"), labelchar);
-					char_active = text_char(labelchar, &dstx, &dsty, &penny);
-				}
-				//text_active = 1;
-				break;
-			case CMD_SI:
-				text_scale_cm(numpad[0], numpad[1]);
-				break;
-			case CMD_SR:
-				text_scale_rel(numpad[0], numpad[1]);
-				break;
-			case CMD_DI:
-				text_direction(numpad[0], numpad[1]);
-				break;
-			case CMD_VS:
-				set_speed(numpad[0]);
-				break;
-			case CMD_AS:
-				set_acceleration_mode(numpad[0]);
-				break;
-			default:
-				break;
-			}
-		} else {
-			msleep_enable(1);
-		}
-	}
-	
-	// have destination, will travel
-	if (dstx >= 0  && dsty >= 0) {
-#ifdef SLOW_QUALITY			
-		last_alpha = alpha;
-		alpha_delta = calc_angle(dstx,dsty);
+            //uart_putchar(c = uart_getc());
+            putchar(c = getchar()); //fflush(stdout);
+
+            switch(hpgl_char(c, &dstx, &dsty, &labelchar)) {
+                case CMD_PU:
+                    if (pen_status != 0) {
+                        finish_path = 1;
+                    }
+                    break;
+                case CMD_PD:
+                    if (pen_status != 1) {
+                        finish_path = 2;
+                    }
+                    break;
+                case CMD_PA:
+                    break;
+                case CMD_ARCABS:
+                    arc_active = arc_init();
+                    break;
+                case CMD_INIT:
+                    // 1. home
+                    // 2. init scale etc
+                    dstx = dsty = 0;
+                    initializing = 1;
+                    finish_path = 1;
+                    break;
+                case CMD_SEEK0:
+                    seeking0 = SEEK0_SEEK;
+                    finish_path = 1;
+                    break;
+                case CMD_LB0:
+                    finish_path = 1;
+                    text_beginlabel();
+                    break;
+                case CMD_LB:
+                    if (labelchar != 0) {
+                        //printf_P(PSTR("[%c]"), labelchar);
+                        char_active = text_char(labelchar, &dstx, &dsty, &penny);
+                    }
+                    //text_active = 1;
+                    break;
+                case CMD_SI:
+                    text_scale_cm(numpad[0], numpad[1]);
+                    break;
+                case CMD_SR:
+                    text_scale_rel(numpad[0], numpad[1]);
+                    break;
+                case CMD_DI:
+                    text_direction(numpad[0], numpad[1]);
+                    break;
+                case CMD_VS:
+                    set_speed(numpad[0]);
+                    break;
+                case CMD_AS:
+                    set_acceleration_mode(numpad[0]);
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            msleep_enable(1);
+        }
+    }
+
+    if (!finish_path && dstx != -1 && dsty != -1) {
+        /* Path can be continued because pen state stays the same */
+        /* Check if the angle permits doing so */
+        float a = path_angle_to(dstx, dsty);
+#ifdef SIM
+        fprintf(stderr, "angle=%3.1f\n", a);
 #endif
-		
-		while(!motors_ready());
+#define CURVEANGLE 15
+        if (a > CURVEANGLE) {// && a < (360-CURVEANGLE)) {
+            finish_path = 3;
+        }
+    }
 
-#ifdef SLOW_QUALITY
-		// wait until the gantry settles down
-		if (alpha_delta > 60) {
-			_delay_ms(50);
-		}
+    if (finish_path) {
+#ifdef SIM
+        fprintf(stderr, "flushing path, count=%d "
+                    " will add waypoint to %d %d after\n", path_count(), dstx, dsty);
 #endif
-		//printf_P(PSTR("PRE-PACE: %d; "), motor_pace);
-		accel_strokesteps = movestep(dstx, dsty);
-		set_acceleration(ACCEL_FIXSLOW, 0);
-		set_acceleration(ACCEL_ACCEL, move_is_steep());
+        STEPPER_COORD px, py;
+        while (path_count() != 0) {
+            while (!motors_ready()) do_idle();
+            path_dequeue(&px, &py); 
+#ifdef SIM
+            fprintf(stderr, "(f) after dequeue, path_count()=%d, to: %d %d\n",
+                    path_count(), px, py);
+#endif
+            movestep(px, py);
+        }
+        while (!motors_ready()) do_idle();
+        switch (finish_path) {
+            case 1: pen_control(0); break;    /* pen up */
+            case 2: pen_control(1); break;    /* pen down */
+            case 3: break;                    /* sharp angle */
+        }
+        path_new();
+        newpath = 1;
+#ifdef SIM
+        fprintf(stderr, "flushed path (%d)\n", finish_path);
+#endif
+        path_stepnumber = 0;
+    }
 
-		speedup_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_RAMP;
-		
-		slowdown_length = (motor_pace-motor_pace_goal)*ACCEL_STEPS_RAMP;
-		
-		if ((speedup_length + slowdown_length) < accel_strokesteps) {
-			accel_decelthresh = accel_strokesteps - slowdown_length;
-		} else {
-			accel_decelthresh = accel_strokesteps/2;
-		}
-		
-		//printf_P(PSTR("\nMOVE TO: (%d %d) strokesteps=%d dthresh=%d pace_goal=%d start_pace=%d speedup=%d slowdown=%d\n"), 
-		//	dstx, dsty, accel_strokesteps, accel_decelthresh, motor_pace_goal, motor_pace, 
-		//	speedup_length, slowdown_length);
-		//printf_P(PSTR("User: (%5.2f,%5.2f)\n"), user_loc.x, user_loc.y);
-	}
+    if (dstx >= 0 && dsty >= 0) {
+        //if (path_count() == 0) newpath = 1;
+        //if (motors_ready()) newpath |= 1;
+
+        path_add(dstx, dsty);
+        //fprintf(stderr, "waypoint to %d,%d len=%d\n", dstx, dsty, path_step_length_from_start());
+
+        update_decelthresh();
+    }
+
+    if (motors_ready()) {
+        if (path_count() != 0) {
+            path_dequeue(&dstx, &dsty); 
+
+            movestep(dstx, dsty);
+            //if (newpath) {
+                set_acceleration(ACCEL_FIXSLOW, 0);
+                set_acceleration(ACCEL_ACCEL, move_is_steep());
+            //}
+            
+            update_decelthresh();
+        }
+    }
 }
+
+/// Called from TIMER0_COMPA_vect.
+/// Stepper motion pulses are issued here.
+void motion_callback(uint8_t borderflags)
+{
+    if (seeking0 == SEEK0_SEEK) {
+        if ((borderflags & (_BV(XSUP)|_BV(YSUP))) == (_BV(XSUP)|_BV(YSUP))) {
+            seeking0 = SEEK0_DONE;
+        }
+        step(borderflags & _BV(XSUP) ? 0 : -1, borderflags & _BV(YSUP) ? 0 : -1);
+        return;
+    }
+
+    if (speed_skip != 0) {
+        speed_skip_ctr--;
+        if ((speed_skip_ctr != 0) && (pen_status != 0)) {
+            return;
+        } else {
+            speed_skip_ctr = speed_skip;
+        }
+    }
+
+    // movestep(-1,-1) returns ordinal number of the current step during movement
+    //int16_t stepnumber = movestep(-1,-1);
+    movestep(-1, -1);
+
+    ++path_stepnumber;
+#if SIM
+    fprintf(stderr, "step#%d pace=%d decelthresh=%d\n", path_stepnumber, 
+            motor_pace, accel_decelthresh);
+#endif
+
+    if (path_stepnumber == accel_decelthresh) {
+        if (accel_decelthresh != 0) {
+            set_acceleration(ACCEL_DECEL, move_is_steep());
+        }
+    }
+
+    //if (stepnumber != -1 && motor_accel) {
+    if (motor_accel) {
+        if (--motor_accel_ctr == 0) {
+            motor_accel_ctr = ACCEL_STEPS_RAMP; 
+            motor_pace += motor_accel;
+            if (motor_pace == motor_pace_goal) {
+                motor_accel = 0;
+            }
+        }
+    }
+}
+
+uint8_t get_pen_status()
+{
+    return pen_status;
+}
+
+uint8_t get_motor_pace()
+{
+    return motor_pace;
+}
+
+void pen_control(uint8_t down) {
+    if (pen_status != down) {
+        while(!motors_ready()) do_idle();
+        if (down) {
+            DELAY_MS(PEN_DOWN_DELAY);
+            pen_servo_set(255);
+            //pen_relax = 255;
+            pen_status = 1;
+        } else {
+            //pen_relax = 255;
+            pen_servo_set(255);
+            pen_status = 0;
+        }
+
+        pen_solenoid_update();
+
+        DELAY_MS(PEN_LIFT_DELAY);
+    }
+}
+
 
 int main() {
 	init_io();
 
-	set_sleep_mode(SLEEP_MODE_IDLE);
+	global_set_sleep_mode_idle();
 
-    usart_init((F_CPU/(16*115200))-1);
+        usart_init((F_CPU/(16*115200))-1);
 	
-    printf_P(PSTR("HEART OF THE INTERSTELLAR LINER\n"));
+        printf_P(PSTR("HEART OF THE INTERSTELLAR LINER\n"));
 	
 	motori_init();
 
@@ -476,96 +500,17 @@ int main() {
 	
 	hpgl_init();
 	
-	sei();
+        global_enable_interrupts();
 	
 	set_acceleration(ACCEL_FIXFAST, 0);
 	seeking0 = SEEK0_SEEK;
-	
+
 	for (;;) {
+                do_idle();
 		do_stuff();
 	}
 	
 	return 0;
-}
-
-
-/// Timer 0 compare match handler. The motion is here.
-///
-/// Every time when TCNT0 matches the OCR0A, which corresponds to the currently set motor pace,
-/// this handler is invoked. movestep() calls step(), where the actual motor commanding impulses
-/// are formed.
-///
-void SIG_OUTPUT_COMPARE0A( void ) __attribute__ ( ( signal ) );  
-void SIG_OUTPUT_COMPARE0A( void ) {
-	int16_t stepnumber;
-	
-	OCR0A = motor_pace;
-	
-	borderflags = ~PINA & 0x3f;
-	
-	if (seeking0 == SEEK0_SEEK) {
-		if ((borderflags & (_BV(XSUP)|_BV(YSUP))) == (_BV(XSUP)|_BV(YSUP))) {
-			seeking0 = SEEK0_DONE;
-		}
-		step(borderflags & _BV(XSUP) ? 0 : -1, borderflags & _BV(YSUP) ? 0 : -1);
-		return;
-	}
-	
-	if (speed_skip != 0) {
-		speed_skip_ctr--;
-		if ((speed_skip_ctr != 0) && (pen_status != 0)) {
-			return;
-		} else {
-			speed_skip_ctr = speed_skip;
-		}
-	}
-
-	
-	stepnumber = movestep(-1,-1);
-	
-	if (stepnumber == accel_decelthresh) {
-		if (accel_decelthresh != 0) {
-			set_acceleration(ACCEL_DECEL, move_is_steep());
-		}
-	}
-
-	if (stepnumber != -1 && motor_accel) {
-		if (--motor_accel_ctr == 0) {
-			motor_accel_ctr = ACCEL_STEPS_RAMP; 
-			motor_pace += motor_accel;
-			if (motor_pace == motor_pace_goal) {
-				motor_accel = 0;
-			}
-		}
-	}
-}
-
-/// Timer 2 Overflow Interrupt controls the pen-lifting servo.
-void SIG_OVERFLOW2( void ) __attribute__ ( ( signal ) );  
-void SIG_OVERFLOW2( void ) {
-	if (pen_relax != 0) {
-		if (pen_pulse_counter == 0) {
-			pen_relax--;
-			PORTD |= _BV(PENPCM);
-		} else if (pen_pulse_counter == 15 && pen_status == 0) {
-			PORTD &= ~_BV(PENPCM);
-		} else if (pen_pulse_counter == 17) {
-			PORTD &= ~_BV(PENPCM);
-		}
-	}
-	pen_pulse_counter = (pen_pulse_counter + 1) & 0x7f;	
-}
-
-/// Timer 1 Overflow Interrupt puts the motors to sleep if the host forgets about us
-void SIG_OVERFLOW1( void ) __attribute__ ( ( signal ) );  
-void SIG_OVERFLOW1( void ) {
-	if (msleep_counter == -1) return;
-
-	if (msleep_counter == 0) {
-		motori_sleep(1);
-	} else {
-		--msleep_counter;
-	}
 }
 
 // $Id$

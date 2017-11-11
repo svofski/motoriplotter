@@ -16,7 +16,8 @@
 // for prescaler / 256
 #define MOTOR_PACE_SLOW  0x60	//!< both motors start at slow pace
 #define MOTOR_PACE_FASTX 0x20 	//!< X axis has smaller steps, goes faster
-#define MOTOR_PACE_FASTY 0x20 	//!< Y axis has larger steps, goes slower
+#define MOTOR_PACE_FASTY 0x18 	//!< Y axis has larger steps, goes slower
+#define MOTOR_PACE_PENUP 0x10
 // for prescaler / 64
 //#define MOTOR_PACE_SLOW  0xff	//!< both motors start at slow pace
 //#define MOTOR_PACE_FASTX 0x40 	//!< X axis has smaller steps, goes faster
@@ -29,10 +30,26 @@
 
 #define STEPSCALE_X 1.8989		//!< scale coefficient X
 #define STEPSCALE_Y 0.7588		//!< scale coefficient Y
+//#define STEPSCALE_X 1.0		//!< scale coefficient X
+//#define STEPSCALE_Y 1.0		//!< scale coefficient Y
+
 
 #define SLEEP_PERIOD	256		//!< clk/256/256
 #define SLEEP_COUNTER	5		//!< this many periods of inactivity and we really go zZz
 
 #define SPEED_SKIP	25
+
+#include "timings.h"
+
+/// Limit switches on PORTA
+///< PORTA
+#define XSUP	0
+#define XINF	1
+#define YSUP	2
+#define YINF	3
+#define ZSUP	4
+#define ZINF	5
+
+#define MAX_PATH_LOOKAHEAD 64           //!< buffer of x, y coords to analyse the path
 
 #endif

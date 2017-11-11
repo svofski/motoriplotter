@@ -2,7 +2,7 @@
 #include <inttypes.h>
 #include <math.h>
 
-#include <avr/pgmspace.h>
+#include <pgmspace.h>
 
 #include "shvars.h"
 #include "hpgl.h"
@@ -271,7 +271,10 @@ lolbel:
 			case ' ': case '\n': case '\r': case '\t':	
 						break;
 			case ';':
-			case ',':	scratchpad[si++] = 0;
+			case ',':               if (si == 0) {
+                                                    scratchpad[si++] = '0';
+                                                }
+                                                scratchpad[si++] = 0;
 						sscanf_P(scratchpad,PSTR("%f"),&fx);
 						si = 0;
 						numpad[numpad_idx] = fx;

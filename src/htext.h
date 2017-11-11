@@ -2,7 +2,8 @@
 #define _HTEXT_H
 
 #include <inttypes.h>
-#include <avr/pgmspace.h>
+
+#include <pgmspace.h>
 
 #include "motori.h"
 

@@ -1,7 +1,7 @@
 #include <inttypes.h>
 #include <math.h>
 
-#include <avr/pgmspace.h>
+#include <pgmspace.h>
 #include <stdio.h>
 
 #include "configs.h"

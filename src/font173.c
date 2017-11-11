@@ -78,7 +78,7 @@ copies.
  ** characters in the upper half of the font
  **/
 
-#include <avr/pgmspace.h>
+#include <pgmspace.h>
 
 PGM_P charset173[256] = {
 	/* 0x00 ... 0x1f        */

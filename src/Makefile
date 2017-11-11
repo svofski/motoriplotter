@@ -1,10 +1,10 @@
-VERSION		   = 0.11
+VERSION		   = 0.12
 PRG            = motori
-OBJ            = motori.o usrat.o line.o arc.o shvars.o scale.o hpgl.o charset0.o font173.o htext.o
+OBJ            = motori.o motori_avr.o usrat.o line.o arc.o shvars.o scale.o hpgl.o charset0.o font173.o htext.o path.o
 MCU_TARGET     = atmega644
 OPTIMIZE       = -Os
 
-DEFS           = -DF_CPU=18432000L -DMCU_TARGET=$(MCU_TARGET) -DVERSION=\"$(VERSION)\" -DBUILDNUM=\"$(BUILDNUM)\"
+DEFS           = -I. -DF_CPU=18432000L -DMCU_TARGET=$(MCU_TARGET) -DVERSION=\"$(VERSION)\" -DBUILDNUM=\"$(BUILDNUM)\"
 LIBS           =
 
 # You should not have to change anything below here.
